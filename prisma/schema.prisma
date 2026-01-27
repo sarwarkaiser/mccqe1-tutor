@@ -1,0 +1,141 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Account {
+  id                 String  @id @default(cuid())
+  userId             String
+  type               String
+  provider           String
+  providerAccountId  String
+  refresh_token      String?  @db.Text
+  access_token       String?  @db.Text
+  expires_at         Int?
+  token_type         String?
+  scope              String?
+  id_token           String?  @db.Text
+  session_state      String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  password      String?   // Only for credentials provider
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts      Account[]
+  sessions      Session[]
+  
+  // Learning data
+  studyPlan     StudyPlan?
+  progress      Progress[]
+  userSessions  UserSession[]
+  results       ExamResult[]
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Question {
+  id          String   @id @default(cuid())
+  question    String
+  options     String[] // JSON array of options
+  correctAnswer Int    // Index of correct option (0-based)
+  explanation String
+  category    String   // e.g., "Medicine", "Surgery", "Pediatrics"
+  subcategory String?  // e.g., "Cardiology", "Endocrinology"
+  difficulty  Int      // 1-5 scale
+  tags        String[] // JSON array of tags
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // For spaced repetition
+  nextReview  DateTime?
+  interval    Int        @default(1) // Days
+  easeFactor  Float      @default(2.5)
+  repetitions Int        @default(0)
+}
+
+model StudyPlan {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  startDate   DateTime @default(now())
+  targetDate  DateTime
+  dailyGoal   Int      @default(50) // Questions per day
+  
+  // Adaptive settings
+  weakAreas   String[] // JSON array of weak categories
+  focusAreas  String[] // JSON array of focus categories
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Progress {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date        DateTime @default(now())
+  questionsAnswered Int
+  correct     Int
+  category    String?
+  createdAt   DateTime @default(now())
+
+  @@index([userId, date])
+}
+
+model UserSession {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        String   // "practice", "exam", "review"
+  startTime   DateTime @default(now())
+  endTime     DateTime?
+  questions   String   // JSON array of question IDs
+  answers     String   // JSON array of answers
+  score       Float?
+  createdAt   DateTime @default(now())
+
+  @@index([userId, startTime])
+}
+
+model ExamResult {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  examType    String   // "full", "half", "timed"
+  score       Float
+  percentile  Float?
+  timeSpent   Int      // in minutes
+  date        DateTime @default(now())
+  breakdown   String   // JSON object of category scores
+  
+  @@index([userId, date])
+}
