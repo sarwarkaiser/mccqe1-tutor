@@ -23,6 +23,17 @@ try {
       findUnique: async () => null,
       create: async () => ({ id: 'demo', email: 'demo@mccqe1.com', name: 'Demo User' }),
     } as any,
+    question: {
+      findMany: async () => [],
+    } as any,
+    userSession: {
+      create: async () => ({ id: 'demo-session' }),
+      findMany: async () => [],
+    } as any,
+    progress: {
+      create: async () => ({ id: 'demo-progress' }),
+      findMany: async () => [],
+    } as any,
     // Add other mock methods as needed
   } as any
 }

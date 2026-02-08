@@ -128,7 +128,12 @@ DATABASE_URL=postgresql://localhost:5432/mccqe1_tutor
 npx prisma migrate dev
 ```
 
-5. **Start development server:**
+5. **Seed the question bank:**
+```bash
+npx prisma db seed
+```
+
+6. **Start development server:**
 ```bash
 npm run dev
 ```

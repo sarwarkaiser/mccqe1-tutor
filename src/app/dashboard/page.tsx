@@ -1,34 +1,40 @@
+import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { getAllCategories } from '@/lib/questionBank'
+import { getDashboardDataForUser } from '@/lib/dashboard'
 
-async function getDashboardData() {
-  // In production, this would fetch real user data
-  // For demo, return mock data
-  return {
-    totalQuestions: 45,
-    correctAnswers: 32,
-    accuracy: 71,
-    studyStreak: 7,
-    weakAreas: ['Cardiology - 55%', 'Neurology - 60%', 'Surgery - 58%'],
-    strongAreas: ['Pediatrics - 90%', 'Endocrinology - 85%', 'Respiratory - 82%'],
-    recentSessions: [
-      { date: '2025-01-26', score: 78, type: 'Practice', questions: 20, time: '25m' },
-      { date: '2025-01-25', score: 82, type: 'Practice', questions: 15, time: '18m' },
-      { date: '2025-01-24', score: 68, type: 'Review', questions: 10, time: '12m' },
-    ],
-    categoryBreakdown: {
-      'Medicine - Cardiology': { correct: 5, total: 8 },
-      'Medicine - Endocrinology': { correct: 6, total: 7 },
-      'Medicine - Respiratory': { correct: 5, total: 6 },
-      'Surgery - General Surgery': { correct: 3, total: 6 },
-      'Pediatrics - Infectious Diseases': { correct: 3, total: 3 },
-      'Medicine - Neurology': { correct: 4, total: 6 },
+async function getAvailableSubjects() {
+  try {
+    const questions = await prisma.question.findMany({
+      select: { category: true, subcategory: true },
+    })
+
+    if (questions.length === 0) {
+      return getAllCategories()
     }
+
+    const set = new Set<string>()
+    questions.forEach((q) => {
+      set.add(q.category)
+      if (q.subcategory) {
+        set.add(`${q.category} - ${q.subcategory}`)
+      }
+    })
+
+    return Array.from(set)
+  } catch (error) {
+    console.error('Failed to load subjects:', error)
+    return getAllCategories()
   }
 }
 
 export default async function DashboardPage() {
-  const data = await getDashboardData()
+  const session = await auth()
+  const userId = (session?.user as { id?: string } | undefined)?.id
+  const data = await getDashboardDataForUser(userId)
+  const subjects = await getAvailableSubjects()
+  const dailyPercent = data.dailyGoal > 0 ? Math.min(100, Math.round((data.dailyProgress / data.dailyGoal) * 100)) : 0
+  const weeklyPercent = data.weeklyGoal > 0 ? Math.min(100, Math.round((data.weeklyProgress / data.weeklyGoal) * 100)) : 0
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-8">
@@ -69,6 +75,9 @@ export default async function DashboardPage() {
             <div className="lg:col-span-2 bg-white rounded-xl p-6 shadow-lg">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">Category Performance</h2>
               <div className="space-y-3 max-h-80 overflow-y-auto">
+                {Object.keys(data.categoryBreakdown).length === 0 && (
+                  <div className="text-sm text-gray-500">No category data yet.</div>
+                )}
                 {Object.entries(data.categoryBreakdown).map(([category, stats]) => {
                   const accuracy = Math.round((stats.correct / stats.total) * 100)
                   const isWeak = accuracy < 60
@@ -93,6 +102,9 @@ export default async function DashboardPage() {
             <div className="bg-white rounded-xl p-6 shadow-lg">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">Weak Areas</h2>
               <div className="space-y-2">
+                {data.weakAreas.length === 0 && (
+                  <div className="text-sm text-gray-500">No weak areas yet.</div>
+                )}
                 {data.weakAreas.map((area, idx) => (
                   <div key={idx} className="p-3 bg-red-50 rounded-lg border border-red-100">
                     <div className="flex items-center justify-between">
@@ -106,6 +118,9 @@ export default async function DashboardPage() {
 
               <h2 className="text-xl font-semibold text-gray-900 mb-4 mt-6">Strong Areas</h2>
               <div className="space-y-2">
+                {data.strongAreas.length === 0 && (
+                  <div className="text-sm text-gray-500">No strong areas yet.</div>
+                )}
                 {data.strongAreas.map((area, idx) => (
                   <div key={idx} className="p-3 bg-green-50 rounded-lg border border-green-100">
                     <div className="flex items-center justify-between">
@@ -123,6 +138,9 @@ export default async function DashboardPage() {
             <div className="bg-white rounded-xl p-6 shadow-lg">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">Recent Sessions</h2>
               <div className="space-y-2">
+                {data.recentSessions.length === 0 && (
+                  <div className="text-sm text-gray-500">No sessions yet.</div>
+                )}
                 {data.recentSessions.map((session, idx) => (
                   <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
                     <div>
@@ -146,29 +164,29 @@ export default async function DashboardPage() {
               <div className="space-y-4">
                 <div>
                   <div className="flex justify-between mb-2">
-                    <span className="text-sm text-gray-600">Daily Goal (50 questions)</span>
-                    <span className="text-sm font-medium text-gray-800">32/50</span>
+                    <span className="text-sm text-gray-600">Daily Goal ({data.dailyGoal} questions)</span>
+                    <span className="text-sm font-medium text-gray-800">{data.dailyProgress}/{data.dailyGoal}</span>
                   </div>
                   <div className="w-full bg-gray-200 rounded-full h-3">
-                    <div className="bg-blue-600 h-3 rounded-full transition-all" style={{ width: '64%' }}></div>
+                    <div className="bg-blue-600 h-3 rounded-full transition-all" style={{ width: `${dailyPercent}%` }}></div>
                   </div>
                 </div>
                 <div>
                   <div className="flex justify-between mb-2">
-                    <span className="text-sm text-gray-600">Weekly Target (350 questions)</span>
-                    <span className="text-sm font-medium text-gray-800">245/350</span>
+                    <span className="text-sm text-gray-600">Weekly Target ({data.weeklyGoal} questions)</span>
+                    <span className="text-sm font-medium text-gray-800">{data.weeklyProgress}/{data.weeklyGoal}</span>
                   </div>
                   <div className="w-full bg-gray-200 rounded-full h-3">
-                    <div className="bg-green-600 h-3 rounded-full transition-all" style={{ width: '70%' }}></div>
+                    <div className="bg-green-600 h-3 rounded-full transition-all" style={{ width: `${weeklyPercent}%` }}></div>
                   </div>
                 </div>
                 <div>
                   <div className="flex justify-between mb-2">
                     <span className="text-sm text-gray-600">Exam Readiness</span>
-                    <span className="text-sm font-medium text-gray-800">71%</span>
+                    <span className="text-sm font-medium text-gray-800">{data.examReadiness}%</span>
                   </div>
                   <div className="w-full bg-gray-200 rounded-full h-3">
-                    <div className="bg-purple-600 h-3 rounded-full transition-all" style={{ width: '71%' }}></div>
+                    <div className="bg-purple-600 h-3 rounded-full transition-all" style={{ width: `${data.examReadiness}%` }}></div>
                   </div>
                 </div>
               </div>
@@ -187,7 +205,7 @@ export default async function DashboardPage() {
           <div className="bg-white rounded-xl p-6 shadow-lg">
             <h2 className="text-xl font-semibold text-gray-900 mb-4">Available Subjects</h2>
             <div className="flex flex-wrap gap-2">
-              {getAllCategories().map((cat) => (
+              {subjects.map((cat) => (
                 <span key={cat} className="inline-block bg-gray-100 text-gray-700 text-sm px-3 py-1 rounded-full">
                   {cat}
                 </span>

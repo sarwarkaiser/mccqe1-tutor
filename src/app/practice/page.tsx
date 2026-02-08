@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import QuestionCard from '@/components/QuestionCard'
 import ProgressTracker from '@/components/ProgressTracker'
-import { sampleQuestions, getAllCategories } from '@/lib/questionBank'
+import { sampleQuestions, type Question } from '@/lib/questionBank'
 
 interface Answer {
   questionId: string
@@ -15,11 +15,15 @@ interface Answer {
 export default function PracticePage() {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [answers, setAnswers] = useState<Answer[]>([])
-  const [startTime] = useState(Date.now())
+  const [startTime, setStartTime] = useState(Date.now())
   const [timeElapsed, setTimeElapsed] = useState(0)
   const [isComplete, setIsComplete] = useState(false)
   const [selectedCategory, setSelectedCategory] = useState<string>('All')
-  const [filteredQuestions, setFilteredQuestions] = useState(sampleQuestions)
+  const [allQuestions, setAllQuestions] = useState<Question[]>([])
+  const [filteredQuestions, setFilteredQuestions] = useState<Question[]>([])
+  const [categories, setCategories] = useState<string[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [persisted, setPersisted] = useState<boolean | null>(null)
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -28,16 +32,58 @@ export default function PracticePage() {
     return () => clearInterval(timer)
   }, [startTime])
 
+  const buildCategories = (questions: Question[]) => {
+    const set = new Set<string>()
+    questions.forEach((q) => {
+      set.add(q.category)
+      if (q.subcategory) {
+        set.add(`${q.category} - ${q.subcategory}`)
+      }
+    })
+    return Array.from(set)
+  }
+
+  useEffect(() => {
+    const loadQuestions = async () => {
+      try {
+        const response = await fetch('/api/questions')
+        const data = await response.json()
+        const questions = Array.isArray(data.questions) && data.questions.length > 0
+          ? data.questions
+          : sampleQuestions
+
+        setAllQuestions(questions)
+        setFilteredQuestions(questions)
+        setCategories(buildCategories(questions))
+      } catch (error) {
+        console.error('Failed to load questions:', error)
+        setAllQuestions(sampleQuestions)
+        setFilteredQuestions(sampleQuestions)
+        setCategories(buildCategories(sampleQuestions))
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    loadQuestions()
+  }, [])
+
   useEffect(() => {
     if (selectedCategory === 'All') {
-      setFilteredQuestions(sampleQuestions)
+      setFilteredQuestions(allQuestions)
     } else {
-      const filtered = sampleQuestions.filter(q => 
-        q.category === selectedCategory || q.subcategory === selectedCategory
+      const filtered = allQuestions.filter(q => 
+        q.category === selectedCategory || `${q.category} - ${q.subcategory}` === selectedCategory
       )
       setFilteredQuestions(filtered)
     }
-  }, [selectedCategory])
+    setCurrentIndex(0)
+    setAnswers([])
+    setIsComplete(false)
+    setTimeElapsed(0)
+    setStartTime(Date.now())
+    setPersisted(null)
+  }, [selectedCategory, allQuestions])
 
   const handleAnswer = (isCorrect: boolean, timeTaken: number) => {
     setAnswers(prev => [...prev, {
@@ -56,7 +102,66 @@ export default function PracticePage() {
     }
   }
 
+  useEffect(() => {
+    const submitSession = async () => {
+      if (persisted !== null) return
+
+      try {
+        const response = await fetch('/api/practice/submit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'practice',
+            startedAt: new Date(startTime).toISOString(),
+            endedAt: new Date().toISOString(),
+            answers,
+          }),
+        })
+
+        const data = await response.json()
+        setPersisted(Boolean(data.persisted))
+      } catch (error) {
+        console.error('Failed to submit session:', error)
+        setPersisted(false)
+      }
+    }
+
+    if (isComplete && answers.length > 0) {
+      submitSession()
+    }
+  }, [isComplete, answers, startTime, persisted])
+
   const correctCount = answers.filter(a => a.isCorrect).length
+
+  if (isLoading) {
+    return (
+      <main className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-8">
+        <div className="container mx-auto px-4">
+          <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow-lg p-8 text-center">
+            <div className="text-gray-700 font-semibold">Loading questions...</div>
+          </div>
+        </div>
+      </main>
+    )
+  }
+
+  if (!filteredQuestions.length) {
+    return (
+      <main className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-8">
+        <div className="container mx-auto px-4">
+          <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow-lg p-8 text-center">
+            <div className="text-gray-700 font-semibold">No questions available.</div>
+            <button
+              onClick={() => setSelectedCategory('All')}
+              className="mt-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
+            >
+              Reset Filters
+            </button>
+          </div>
+        </div>
+      </main>
+    )
+  }
 
   if (isComplete) {
     const accuracy = Math.round((correctCount / answers.length) * 100)
@@ -83,6 +188,17 @@ export default function PracticePage() {
               <p className="text-gray-600 text-center mb-8">
                 You answered {filteredQuestions.length} questions in {Math.floor(timeElapsed / 60)}m {timeElapsed % 60}s
               </p>
+
+              {persisted === true && (
+                <div className="mb-6 p-3 bg-green-50 border border-green-200 rounded-lg text-green-800 text-sm text-center">
+                  Session saved to your dashboard.
+                </div>
+              )}
+              {persisted === false && (
+                <div className="mb-6 p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-yellow-800 text-sm text-center">
+                  Session not saved. Sign in to track your progress.
+                </div>
+              )}
               
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
                 <div className="p-4 bg-blue-50 rounded-xl text-center">
@@ -197,9 +313,9 @@ export default function PracticePage() {
                       : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                   }`}
                 >
-                  All ({sampleQuestions.length})
+                  All ({allQuestions.length})
                 </button>
-                {getAllCategories().map((cat) => (
+                {categories.map((cat) => (
                   <button
                     key={cat}
                     onClick={() => setSelectedCategory(cat)}

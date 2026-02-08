@@ -1,12 +1,14 @@
 import NextAuth from 'next-auth'
 import CredentialsProvider from 'next-auth/providers/credentials'
 import bcrypt from 'bcryptjs'
+import { prisma } from '@/lib/prisma'
 
 // Demo users for testing without database
 const demoUsers = [
   {
     id: 'demo-1',
     email: 'demo@mccqe1.com',
+    // Plaintext for demo mode; allow both hashed and plaintext comparisons.
     password: 'demo123',
     name: 'Demo User',
   },
@@ -41,22 +43,48 @@ export const {
         const email = credentials.email as string
         const password = credentials.password as string
 
-        // Check demo users
-        const user = demoUsers.find(u => u.email === email)
-        
-        if (!user) {
+        // Check demo users first
+        const demoUser = demoUsers.find(u => u.email === email)
+        if (demoUser) {
+          const isValid = demoUser.password.startsWith('$2')
+            ? await bcrypt.compare(password, demoUser.password)
+            : password === demoUser.password
+
+          if (!isValid) {
+            return null
+          }
+
+          return {
+            id: demoUser.id,
+            email: demoUser.email,
+            name: demoUser.name,
+          }
+        }
+
+        // Fallback to database users
+        let dbUser: { id: string; email: string; name: string | null; password: string | null } | null = null
+        try {
+          dbUser = await prisma.user.findUnique({
+            where: { email },
+          })
+        } catch (error) {
+          console.error('Database lookup failed:', error)
           return null
         }
 
-        const isValid = await bcrypt.compare(password, user.password)
+        if (!dbUser || !dbUser.password) {
+          return null
+        }
+
+        const isValid = await bcrypt.compare(password, dbUser.password)
         if (!isValid) {
           return null
         }
 
         return {
-          id: user.id,
-          email: user.email,
-          name: user.name,
+          id: dbUser.id,
+          email: dbUser.email,
+          name: dbUser.name ?? undefined,
         }
       },
     }),
